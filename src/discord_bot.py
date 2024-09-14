@@ -9,7 +9,7 @@ from typing import Optional, Dict, List
 
 
 GUILD_ID = 1280681998674825256
-SYSTEM_CHANNEL = 1280737210785730603
+SYSTEM_CHANNEL = 1281287799567286292
 intents = discord.Intents.all()
 
 
@@ -29,7 +29,7 @@ class DiscordBot(commands.Bot):
         try:
             guild = discord.Object(id=self.guild_id)
             synced = await self.tree.sync(guild=guild)
-            self.logger.info(f'Synced {len(synced)} commands for guild ID {self.guild_id}')
+            self.logger.debug(f'Synced {len(synced)} commands for guild ID {self.guild_id}')
         except Exception as e:
             print(f'Error syncing commands: {e}')
 

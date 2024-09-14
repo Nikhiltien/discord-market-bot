@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict
 from src import database
 from src.discord_bot import DiscordBot
+from src.utils.tickers import generate_company_tickers
 
 
 @dataclass
@@ -53,8 +54,9 @@ class StockMarket:
         Start the game by initializing the game and starting the price update loop.
         """
         self.client.callback = self._client_callback
+        self.initialize_stocks()
         await self.initialize_game()
-        await self.update_stock_prices(interval)
+        await self.refresh(interval)
 
     async def initialize_game(self):
         """
@@ -64,7 +66,7 @@ class StockMarket:
         member_list = await self.client.list_members()
         for user_id, username in member_list.items():
             if not self.db.user_exists(user_id):
-                self.db.add_user(user_id=user_id, username=username, balance=100000.0)
+                self.db.add_user(user_id=user_id, username=username, initial_cash=100000.0)
                 self.logger.info(f"Added new user: {username} with ID {user_id}.")
 
         # Retrieve all users from the database
@@ -91,7 +93,53 @@ class StockMarket:
             )
             self.stocks[stock['ticker']] = stock_info
 
-        print("Game initialized with users and stocks.")
+        self.logger.info("Game initialized with users and stocks.")
+
+    async def refresh(self, interval: int):
+        while True:
+            self.update_stock_prices()
+            self.update_users()
+
+            await asyncio.sleep(interval)
+
+    def initialize_stocks(self):
+        company_names = []
+        with open('database/stocks.csv', 'r') as file:
+            for line in file:
+                company_name = line.strip()
+                if company_name:
+                    company_names.append(company_name)
+
+        company_tickers = generate_company_tickers(company_names)
+        for name, ticker in company_tickers.items():
+            # Check if the company already exists in the database by name
+            if self.db.company_exists(name):
+                self.logger.debug(f"Company {name} already exists in the database. Skipping.")
+                continue
+
+            # Generate initial price and volume
+            initial_price = round(random.uniform(10, 1_000), 2)
+            initial_volume = 0
+            
+            # Insert the new stock data into the database
+            self.db.insert_stock_data(name=name, ticker=ticker, price=initial_price, volume=initial_volume)
+            self.logger.debug(f"Added {name} ({ticker}) with initial price {initial_price} and volume {initial_volume}")
+
+    def update_stock_prices(self):
+        """
+        Update stock prices with realistic randomness and update them in the database.
+        """
+        for ticker, stock in self.stocks.items():
+            new_price = self._calculate_price_change(stock.price)
+            stock.price = max(new_price, 0.01)  # Ensure price doesn't drop below 0
+            
+            # Update the price in the database
+            self.db.update_stock_price(ticker=ticker, price=stock.price)
+
+            self.logger.debug(f"Updated price for {ticker}: {stock.price:.2f}")
+
+    def update_users(self):
+        pass
 
     def new_user(self, member: str) -> str:
         # user_id, username = message.split(':')
@@ -100,19 +148,7 @@ class StockMarket:
         #     self.logger.info(f"Added new user: {username} with ID {user_id}.")
         print(f"New user joined: {member}")
 
-    async def update_stock_prices(self, interval: int):
-        """
-        Update stock prices with realistic randomness.
-        """
-        while True:
-            for ticker, stock in self.stocks.items():
-                new_price = self.calculate_price_change(stock.price)
-                stock.price = max(new_price, 0.01)  # Ensure price doesn't drop below 0
-                print(f"Updated price for {ticker}: {stock.price:.2f}")
-
-            await asyncio.sleep(interval)
-
-    def calculate_price_change(self, current_price: float) -> float:
+    def _calculate_price_change(self, current_price: float) -> float:
         """
         Calculate the new price using a mix of Gaussian and fat-tailed distributions.
         """
@@ -130,16 +166,42 @@ class StockMarket:
         new_price = current_price * (1 + change)
         return new_price
 
-    def user_buy(self, message: Dict):
+    def user_buy(self, message: Dict) -> str:
         user_id = message.get('user_id')
         ticker = message.get('ticker')
         qty = message.get('quantity')
-        self.db.buy_stock(user_id=user_id, ticker=ticker, qty=qty)
-        return f"Buy for {message}"
 
-    def user_sell(self, message: Dict):
+        # Check for fractional shares
+        if not isinstance(qty, int) or qty <= 0:
+            error_msg = "Error: Quantity must be a positive integer. Fractional shares are not allowed."
+            self.logger.error(error_msg)
+            return error_msg
+
+        # Attempt to buy stock and propagate any error messages
+        result = self.db.buy_stock(user_id=user_id, ticker=ticker, qty=qty)
+        if isinstance(result, str) and "Error" in result:
+            self.logger.error(result)
+            return result
+
+        self.logger.info(f"User {user_id} bought {qty} shares of {ticker}.")
+        return f"User {user_id} successfully bought {qty} shares of {ticker}."
+
+    def user_sell(self, message: Dict) -> str:
         user_id = message.get('user_id')
         ticker = message.get('ticker')
         qty = message.get('quantity')
-        self.db.sell_stock(user_id=user_id, ticker=ticker, qty=qty)
-        return f"Sell for {message}"
+
+        # Check for fractional shares
+        if not isinstance(qty, int) or qty <= 0:
+            error_msg = "Error: Quantity must be a positive integer. Fractional shares are not allowed."
+            self.logger.error(error_msg)
+            return error_msg
+
+        # Attempt to sell stock and propagate any error messages
+        result = self.db.sell_stock(user_id=user_id, ticker=ticker, qty=qty)
+        if isinstance(result, str) and "Error" in result:
+            self.logger.error(result)
+            return result
+
+        self.logger.info(f"User {user_id} sold {qty} shares of {ticker}.")
+        return f"User {user_id} successfully sold {qty} shares of {ticker}."

@@ -14,12 +14,9 @@ setup_logger(level='INFO', stream=True)
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = 1280681998674825256
+SYSTEM_CHANNEL = 1280737210785730603
 intents = discord.Intents.all()
 
-
-def bot_callback(arg):
-    print(arg)
-    return arg
 
 async def monitor(market: StockMarket):
     while True:
@@ -33,7 +30,7 @@ async def main():
     try:
         db = Database("galactic_republic")
 
-        bot = DiscordBot(command_prefix='!', intents=intents, guild_id=GUILD_ID, callback=bot_callback)
+        bot = DiscordBot(command_prefix='!', intents=intents, guild_id=GUILD_ID, sys_channel=SYSTEM_CHANNEL)
         client_task = asyncio.create_task(bot.start(TOKEN))
         await bot.ready.wait()
 

@@ -9,14 +9,16 @@ from typing import Optional, Dict, List
 
 
 GUILD_ID = 1280681998674825256
+SYSTEM_CHANNEL = 1280737210785730603
 intents = discord.Intents.all()
 
 
 class DiscordBot(commands.Bot):
-    def __init__(self, command_prefix, intents, guild_id, callback = None):
+    def __init__(self, command_prefix, intents, guild_id, sys_channel, callback = None):
         super().__init__(command_prefix=command_prefix, intents=intents)
         self.logger = logging.getLogger(__name__)
         self.guild_id = guild_id
+        self.system_channel = sys_channel
         self.callback = callback
         self.ready = asyncio.Event()
 
@@ -39,7 +41,7 @@ class DiscordBot(commands.Bot):
     async def list_members(self):
         guild = self.get_guild(self.guild_id)
         if guild:
-            print(f'Guild: {guild.name}')
+            self.logger.info(f'Guild: {guild.name}')
             await guild.chunk()  # Ensure all members are cached
             members = guild.members
             members_dict = {}
@@ -48,7 +50,7 @@ class DiscordBot(commands.Bot):
             return members_dict
 
     async def on_member_join(self, member):
-        pass
+        self.callback(topic="NEW USER", message=member)
 
     async def on_message(self, message):
         # Don't respond to ourselves
@@ -75,13 +77,29 @@ class MyCog(commands.Cog):
     @app_commands.guilds(discord.Object(id=GUILD_ID))
     async def buy(self, interaction: discord.Interaction, ticker: str, quantity: int):
         if self.bot.callback:
-            result = self.bot.callback(f"{interaction.user}: {ticker.upper()}, {quantity}")
-        await interaction.response.send_message(result)
+            message = {
+                'user_id': interaction.user.id,
+                'ticker': ticker.upper(),
+                'quantity': quantity
+            }
+            result = self.bot.callback(topic='BUY', message=message)
+            await interaction.response.send_message(result)
 
     @app_commands.command(name='sell', description='Sell a stock.')
+    @app_commands.describe(
+        ticker='The symbol of the stock you want to sell',
+        quantity='The number of shares you want to sell'
+    )
     @app_commands.guilds(discord.Object(id=GUILD_ID))
-    async def sell(self, interaction: discord.Interaction):
-        await interaction.response.send_message('This is a placeholder command for sell.')
+    async def sell(self, interaction: discord.Interaction, ticker: str, quantity: int):
+        if self.bot.callback:
+            message = {
+                'user_id': interaction.user.id,
+                'ticker': ticker.upper(),
+                'quantity': quantity
+            }
+            result = self.bot.callback(topic='SELL', message=message)
+            await interaction.response.send_message(result)
 
     @app_commands.command(name='portfolio', description='View your portfolio.')
     @app_commands.guilds(discord.Object(id=GUILD_ID))

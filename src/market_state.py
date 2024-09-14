@@ -1,5 +1,6 @@
 import random
 import asyncio
+import logging
 
 
 from datetime import datetime
@@ -28,20 +29,31 @@ class UserInfo:
 
 class StockMarket:
     def __init__(self, db: database.Database, client: DiscordBot) -> None:
+        self.logger = logging.getLogger(__name__)
         self.db = db
         self.client = client
         self.users: List[UserInfo] = []
         self.stocks: Dict[str, StockInfo] = {}
+        self.topics = {
+            "BUY": self.user_buy,
+            "SELL": self.user_sell,
+            "NEW USER": self.new_user,
+        }
 
-    def client_callback(message):
-        print(message)
+    def _client_callback(self, topic, message):
+        self.logger.debug(f"Received callback with topic: {topic}, message: {message}")
+        if topic in self.topics:
+            handler = self.topics[topic]
+            return handler(message)
+        else:
+            self.logger.error(f"Unknown topic: {topic}")
 
     async def start_game(self, interval: int = 30):
         """
         Start the game by initializing the game and starting the price update loop.
         """
+        self.client.callback = self._client_callback
         await self.initialize_game()
-        self.client.callback = self.client_callback
         await self.update_stock_prices(interval)
 
     async def initialize_game(self):
@@ -51,9 +63,9 @@ class StockMarket:
         # Add Discord members to the database if they don't already exist
         member_list = await self.client.list_members()
         for user_id, username in member_list.items():
-            if not self.db.user_exists(user_id):  # Assuming `user_exists` is a method in your Database class
+            if not self.db.user_exists(user_id):
                 self.db.add_user(user_id=user_id, username=username, balance=100000.0)
-                print(f"Added new user: {username} with ID {user_id}.")
+                self.logger.info(f"Added new user: {username} with ID {user_id}.")
 
         # Retrieve all users from the database
         user_data = self.db.get_all_users()
@@ -80,6 +92,13 @@ class StockMarket:
             self.stocks[stock['ticker']] = stock_info
 
         print("Game initialized with users and stocks.")
+
+    def new_user(self, member: str) -> str:
+        # user_id, username = message.split(':')
+        # if not self.db.user_exists(user_id):
+        #     self.db.add_user(user_id=user_id, username=username, balance=100_000.00)
+        #     self.logger.info(f"Added new user: {username} with ID {user_id}.")
+        print(f"New user joined: {member}")
 
     async def update_stock_prices(self, interval: int):
         """
@@ -111,3 +130,16 @@ class StockMarket:
         new_price = current_price * (1 + change)
         return new_price
 
+    def user_buy(self, message: Dict):
+        user_id = message.get('user_id')
+        ticker = message.get('ticker')
+        qty = message.get('quantity')
+        self.db.buy_stock(user_id=user_id, ticker=ticker, qty=qty)
+        return f"Buy for {message}"
+
+    def user_sell(self, message: Dict):
+        user_id = message.get('user_id')
+        ticker = message.get('ticker')
+        qty = message.get('quantity')
+        self.db.sell_stock(user_id=user_id, ticker=ticker, qty=qty)
+        return f"Sell for {message}"

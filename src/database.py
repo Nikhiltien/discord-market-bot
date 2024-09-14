@@ -102,7 +102,7 @@ class Database:
             self.logger.error(f"Error retrieving latest price for {ticker}: {e}")
             return None
 
-    def buy_stock(self, user_id: int, ticker: str, quantity: int):
+    def buy_stock(self, user_id: int, ticker: str, qty: int):
         """
         Buy stock at the latest market price and update user's portfolio stored as JSON in the Users table.
         """
@@ -128,7 +128,7 @@ class Database:
             portfolio = json.loads(portfolio_json) if portfolio_json else {}
 
             # Check if user can afford the purchase
-            total_cost = quantity * price
+            total_cost = qty * price
             if balance < total_cost:
                 self.logger.error(f"User {user_id} has insufficient balance.")
                 return
@@ -137,13 +137,13 @@ class Database:
             if ticker in portfolio:
                 current_quantity = portfolio[ticker]['quantity']
                 current_average_price = portfolio[ticker]['average_price']
-                new_quantity = current_quantity + quantity
-                new_average_price = ((current_quantity * current_average_price) + (quantity * price)) / new_quantity
+                new_quantity = current_quantity + qty
+                new_average_price = ((current_quantity * current_average_price) + (qty * price)) / new_quantity
 
                 portfolio[ticker]['quantity'] = new_quantity
                 portfolio[ticker]['average_price'] = new_average_price
             else:
-                portfolio[ticker] = {'quantity': quantity, 'average_price': price}
+                portfolio[ticker] = {'quantity': qty, 'average_price': price}
 
             # Update user's balance
             new_balance = balance - total_cost
@@ -156,11 +156,11 @@ class Database:
             ''', (new_balance, json.dumps(portfolio), user_id))
             self.conn.commit()
 
-            self.logger.info(f"User {user_id} bought {quantity} shares of {ticker} at {price}.")
+            self.logger.info(f"User {user_id} bought {qty} shares of {ticker} at {price}.")
         except Exception as e:
             self.logger.error(f"Error buying stock for user {user_id}: {e}")
 
-    def sell_stock(self, user_id: int, ticker: str, quantity: int):
+    def sell_stock(self, user_id: int, ticker: str, qty: int):
         """
         Sell stock at the latest market price and update user's portfolio stored as JSON in the Users table.
         """
@@ -185,19 +185,19 @@ class Database:
             balance, portfolio_json = result
             portfolio = json.loads(portfolio_json) if portfolio_json else {}
 
-            if ticker not in portfolio or portfolio[ticker]['quantity'] < quantity:
+            if ticker not in portfolio or portfolio[ticker]['quantity'] < qty:
                 self.logger.error(f"User {user_id} does not have enough shares of {ticker} to sell.")
                 return
 
             # Calculate the proceeds from the sale
-            proceeds = quantity * sell_price
+            proceeds = qty * sell_price
 
             # Update or remove the holding
             current_quantity = portfolio[ticker]['quantity']
-            if current_quantity == quantity:
+            if current_quantity == qty:
                 del portfolio[ticker]  # Remove stock if all shares are sold
             else:
-                portfolio[ticker]['quantity'] -= quantity
+                portfolio[ticker]['quantity'] -= qty
 
             # Update user's balance
             new_balance = balance + proceeds
@@ -210,7 +210,7 @@ class Database:
             ''', (new_balance, json.dumps(portfolio), user_id))
             self.conn.commit()
 
-            self.logger.info(f"User {user_id} sold {quantity} shares of {ticker} at {sell_price}.")
+            self.logger.info(f"User {user_id} sold {qty} shares of {ticker} at {sell_price}.")
         except Exception as e:
             self.logger.error(f"Error selling stock for user {user_id}: {e}")
 

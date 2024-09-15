@@ -1,6 +1,5 @@
 import os
 import asyncio
-import discord
 
 
 from dotenv import load_dotenv
@@ -15,7 +14,6 @@ load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = 1280681998674825256
 SYSTEM_CHANNEL = 1281287799567286292
-intents = discord.Intents.all()
 
 
 async def monitor(market: StockMarket):
@@ -31,7 +29,7 @@ async def main():
         db = Database("galactic_republic")
 
         # Start Discord client before passing to StockMarket class
-        bot = DiscordBot(command_prefix='!', intents=intents, guild_id=GUILD_ID, sys_channel=SYSTEM_CHANNEL)
+        bot = DiscordBot(command_prefix='!', guild_id=GUILD_ID, sys_channel=SYSTEM_CHANNEL)
         _ = asyncio.create_task(bot.start(TOKEN))
         await bot.ready.wait()
 

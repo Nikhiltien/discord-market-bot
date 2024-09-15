@@ -139,6 +139,50 @@ class Database:
             self.logger.error(f"Error checking if user exists: {e}")
             return False
 
+    def get_user_leaderboard(self) -> List[Dict]:
+        """
+        Retrieve users with their latest balance and 24-hour returns from the database, sorted by balance.
+        """
+        try:
+            # Fetch the latest balance and 24-hour old balance for each user
+            self.cursor.execute('''
+                SELECT u.username, uh.balance,
+                    (SELECT balance FROM UserHistory 
+                    WHERE user_id = uh.user_id 
+                    AND timestamp >= datetime('now', '-24 hours')
+                    ORDER BY timestamp ASC 
+                    LIMIT 1) AS old_balance
+                FROM Users u
+                JOIN (
+                    SELECT user_id, MAX(timestamp) as latest_timestamp
+                    FROM UserHistory
+                    GROUP BY user_id
+                ) lh ON u.user_id = lh.user_id
+                JOIN UserHistory uh ON uh.user_id = lh.user_id AND uh.timestamp = lh.latest_timestamp
+                ORDER BY uh.balance DESC
+            ''')
+            users = self.cursor.fetchall()
+            user_list = []
+
+            for user in users:
+                username, balance, old_balance = user
+                # Calculate 24-hour returns based on the earliest balance within the last 24 hours
+                if old_balance is not None:
+                    return_24h = ((balance - old_balance) / old_balance) * 100
+                else:
+                    return_24h = 0.0  # If no historical data within the last 24 hours, set return to 0.0
+
+                user_list.append({
+                    'username': username,
+                    'balance': balance,
+                    'return_24h': return_24h
+                })
+
+            return user_list
+        except Exception as e:
+            self.logger.error(f"Error retrieving user leaderboard: {e}")
+            return []
+
     def company_exists(self, name: str) -> bool:
         """
         Check if a company already exists in the Stocks table based on the company name.
@@ -188,12 +232,17 @@ class Database:
 
     def get_all_stocks(self) -> List[Dict]:
         """
-        Retrieve the most recent price of each stock from the database.
+        Retrieve the most recent price of each stock along with the full name and 24-hour returns from the database.
         """
         try:
-            # Retrieve stock and latest price data
+            # Retrieve stock data with the latest price and the earliest price within the last 24 hours
             self.cursor.execute('''
-                SELECT s.ticker, sh.price
+                SELECT s.ticker, s.name, sh.price,
+                    (SELECT price FROM StockHistory 
+                    WHERE stock_id = s.id 
+                    AND timestamp >= datetime('now', '-24 hours')
+                    ORDER BY timestamp ASC 
+                    LIMIT 1) AS earliest_price
                 FROM Stocks s
                 JOIN (
                     SELECT stock_id, MAX(timestamp) as latest_timestamp
@@ -203,7 +252,23 @@ class Database:
                 JOIN StockHistory sh ON sh.stock_id = lh.stock_id AND sh.timestamp = lh.latest_timestamp
             ''')
             stocks = self.cursor.fetchall()
-            stock_list = [{'ticker': stock[0], 'price': stock[1]} for stock in stocks]
+            stock_list = []
+
+            for stock in stocks:
+                ticker, name, price, earliest_price = stock
+                # Calculate the return percentage based on the earliest price within the last 24 hours
+                if earliest_price is not None:
+                    return_24h = ((price - earliest_price) / earliest_price) * 100
+                else:
+                    return_24h = 0.0  # If no historical data within the last 24 hours, set return to 0.0
+
+                stock_list.append({
+                    'ticker': ticker,
+                    'name': name,
+                    'price': price,
+                    'return_24h': return_24h
+                })
+
             return stock_list
         except Exception as e:
             self.logger.error(f"Error retrieving stocks: {e}")
@@ -212,7 +277,7 @@ class Database:
     def buy_stock(self, user_id: int, ticker: str, qty: int) -> Optional[str]:
         """
         Buy stock at the latest market price and update user's portfolio stored as JSON in the UserHistory table.
-        Returns an error message if an issue occurs, otherwise None.
+        Returns a message with the username if successful, or an error message if an issue occurs.
         """
         try:
             # Fetch the latest price of the stock
@@ -222,12 +287,16 @@ class Database:
                 self.logger.error(error_msg)
                 return error_msg
 
-            # Fetch user's current cash, balance, and portfolio
+            # Fetch user's current cash, balance, portfolio, and username
             self.cursor.execute('''
-                SELECT cash, portfolio FROM UserHistory
-                WHERE user_id = ?
-                ORDER BY timestamp DESC
-                LIMIT 1
+                SELECT u.username, uh.cash, uh.portfolio 
+                FROM Users u
+                JOIN (
+                    SELECT * FROM UserHistory
+                    WHERE user_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                ) uh ON u.user_id = uh.user_id
             ''', (user_id,))
             result = self.cursor.fetchone()
 
@@ -236,13 +305,13 @@ class Database:
                 self.logger.error(error_msg)
                 return error_msg
 
-            cash, portfolio_json = result
+            username, cash, portfolio_json = result
             portfolio = json.loads(portfolio_json) if portfolio_json else {}
 
             # Check if user can afford the purchase
             total_cost = qty * price
             if cash < total_cost:
-                error_msg = f"Error: User {user_id} has insufficient cash."
+                error_msg = f"Error: User {username} has insufficient cash."
                 self.logger.error(error_msg)
                 return error_msg
 
@@ -271,8 +340,8 @@ class Database:
             ''', (timestamp, user_id, new_balance, new_cash, json.dumps(portfolio)))
             self.conn.commit()
 
-            self.logger.info(f"User {user_id} bought {qty} shares of {ticker} at {price}.")
-            return None
+            self.logger.debug(f"User {username} bought {qty} shares of {ticker} at {price}.")
+            return f"{username}"
         except Exception as e:
             error_msg = f"Error buying stock for user {user_id}: {e}"
             self.logger.error(error_msg)
@@ -281,7 +350,7 @@ class Database:
     def sell_stock(self, user_id: int, ticker: str, qty: int) -> Optional[str]:
         """
         Sell stock at the latest market price and update user's portfolio stored as JSON in the UserHistory table.
-        Returns an error message if an issue occurs, otherwise None.
+        Returns a message with the username if successful, or an error message if an issue occurs.
         """
         try:
             # Fetch the latest price of the stock
@@ -291,12 +360,16 @@ class Database:
                 self.logger.error(error_msg)
                 return error_msg
 
-            # Fetch user's current cash, balance, and portfolio
+            # Fetch user's current cash, balance, portfolio, and username
             self.cursor.execute('''
-                SELECT cash, portfolio FROM UserHistory
-                WHERE user_id = ?
-                ORDER BY timestamp DESC
-                LIMIT 1
+                SELECT u.username, uh.cash, uh.portfolio 
+                FROM Users u
+                JOIN (
+                    SELECT * FROM UserHistory
+                    WHERE user_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                ) uh ON u.user_id = uh.user_id
             ''', (user_id,))
             result = self.cursor.fetchone()
 
@@ -305,11 +378,11 @@ class Database:
                 self.logger.error(error_msg)
                 return error_msg
 
-            cash, portfolio_json = result
+            username, cash, portfolio_json = result
             portfolio = json.loads(portfolio_json) if portfolio_json else {}
 
             if ticker not in portfolio or portfolio[ticker]['quantity'] < qty:
-                error_msg = f"Error: User {user_id} does not have enough shares of {ticker} to sell."
+                error_msg = f"Error: User {username} does not have enough shares of {ticker} to sell."
                 self.logger.error(error_msg)
                 return error_msg
 
@@ -336,8 +409,8 @@ class Database:
             ''', (timestamp, user_id, new_balance, new_cash, json.dumps(portfolio)))
             self.conn.commit()
 
-            self.logger.info(f"User {user_id} sold {qty} shares of {ticker} at {sell_price}.")
-            return None
+            self.logger.debug(f"User {username} sold {qty} shares of {ticker} at {sell_price}.")
+            return f"{username}"
         except Exception as e:
             error_msg = f"Error selling stock for user {user_id}: {e}"
             self.logger.error(error_msg)

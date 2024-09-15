@@ -6,6 +6,8 @@ import logging
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import List, Dict
+from prettytable import PrettyTable
+from PIL import Image, ImageDraw, ImageFont
 from src import database
 from src.discord_bot import DiscordBot
 from src.utils.tickers import generate_company_tickers
@@ -39,6 +41,8 @@ class StockMarket:
             "BUY": self.user_buy,
             "SELL": self.user_sell,
             "NEW USER": self.new_user,
+            "ALL STOCKS": self.display_stocks,
+            "LEADERBOARD": self.leaderboard,
         }
 
     def _client_callback(self, topic, message):
@@ -125,6 +129,78 @@ class StockMarket:
             self.db.insert_stock_data(name=name, ticker=ticker, price=initial_price, volume=initial_volume)
             self.logger.debug(f"Added {name} ({ticker}) with initial price {initial_price} and volume {initial_volume}")
 
+    def leaderboard(self, message: None) -> str:
+        # Retrieve leaderboard data and limit to the top 10 users
+        leaderboard_data = self.db.get_user_leaderboard()[:10]  # Limit to top 10 users
+        table = PrettyTable()
+        table.field_names = ["Place", "Username", "Balance", "24h Return"]
+
+        # Populate the table with user data, sorted by balance
+        for idx, user in enumerate(leaderboard_data, start=1):
+            username = user['username']
+            balance = f"${user['balance']:.2f}"
+            return_24h = f"{user['return_24h']:.2f}%"
+            table.add_row([idx, username, balance, return_24h])
+
+        # Send the leaderboard as a formatted message
+        return f"```\n{table}\n```"
+
+    def display_stocks(self, message: None) -> str:
+        """
+        Generates an image of the stock market overview with tickers, full names, prices, and 24-hour returns.
+        Returns the file path of the created image.
+        """
+        # Fetch all stocks sorted alphabetically
+        stock_data = self.db.get_all_stocks()
+        sorted_stocks = sorted(stock_data, key=lambda x: x['ticker'])
+
+        # Image configuration
+        image_width = 900
+        row_height = 40
+        header_height = 50
+        padding = 20
+        total_height = header_height + (len(sorted_stocks) * row_height) + padding
+
+        # Create a blank image with a white background
+        image = Image.new("RGB", (image_width, total_height), "white")
+        draw = ImageDraw.Draw(image)
+
+        # Load a font
+        try:
+            font = ImageFont.truetype("arial.ttf", 20)
+            header_font = ImageFont.truetype("arial.ttf", 24)
+        except IOError:
+            font = ImageFont.load_default()
+            header_font = ImageFont.load_default()
+
+        # Draw headers
+        draw.text((padding, padding), "Ticker", font=header_font, fill="black")
+        draw.text((200, padding), "Name", font=header_font, fill="black")
+        draw.text((500, padding), "Price", font=header_font, fill="black")
+        draw.text((700, padding), "24h Return", font=header_font, fill="black")
+
+        # Draw stock data
+        for index, stock in enumerate(sorted_stocks):
+            y = header_height + (index * row_height) + padding
+            ticker = stock['ticker']
+            name = stock.get('name', 'Unknown')
+            price = f"${stock['price']:.2f}"
+            return_24h = stock['return_24h']
+
+            # Format the return with color coding
+            return_text = f"{return_24h:.2f}%"
+            return_color = "green" if return_24h > 0 else "red"
+
+            draw.text((padding, y), ticker, font=font, fill="black")
+            draw.text((200, y), name, font=font, fill="black")
+            draw.text((500, y), price, font=font, fill="black")
+            draw.text((700, y), return_text, font=font, fill=return_color)
+
+        # Save the image to a temporary location
+        file_path = "stock_overview.png"
+        image.save(file_path)
+        return file_path
+
     def update_stock_prices(self):
         """
         Update stock prices with realistic randomness and update them in the database.
@@ -183,8 +259,9 @@ class StockMarket:
             self.logger.error(result)
             return result
 
-        self.logger.info(f"User {user_id} bought {qty} shares of {ticker}.")
-        return f"User {user_id} successfully bought {qty} shares of {ticker}."
+        username = result
+        self.logger.info(f"User {username} bought {qty} shares of {ticker}.")
+        return f"{username} successfully bought {qty} shares of {ticker}."
 
     def user_sell(self, message: Dict) -> str:
         user_id = message.get('user_id')
@@ -203,5 +280,6 @@ class StockMarket:
             self.logger.error(result)
             return result
 
-        self.logger.info(f"User {user_id} sold {qty} shares of {ticker}.")
-        return f"User {user_id} successfully sold {qty} shares of {ticker}."
+        username = result
+        self.logger.info(f"User {username} sold {qty} shares of {ticker}.")
+        return f"{username} successfully sold {qty} shares of {ticker}."

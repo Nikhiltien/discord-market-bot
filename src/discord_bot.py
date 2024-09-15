@@ -1,3 +1,4 @@
+import os
 import asyncio
 import logging
 import discord
@@ -10,11 +11,11 @@ from typing import Optional, Dict, List
 
 GUILD_ID = 1280681998674825256
 SYSTEM_CHANNEL = 1281287799567286292
-intents = discord.Intents.all()
 
 
 class DiscordBot(commands.Bot):
-    def __init__(self, command_prefix, intents, guild_id, sys_channel, callback = None):
+    def __init__(self, command_prefix, guild_id, sys_channel, callback = None):
+        intents = discord.Intents.all()
         super().__init__(command_prefix=command_prefix, intents=intents)
         self.logger = logging.getLogger(__name__)
         self.guild_id = guild_id
@@ -106,15 +107,35 @@ class MyCog(commands.Cog):
     async def portfolio(self, interaction: discord.Interaction):
         await interaction.response.send_message('This is a placeholder command for portfolio.')
 
-    @app_commands.command(name='leaderboard', description='View the leaderboard.')
+    @app_commands.command(name='leaderboard', description='View the top 10 leaderboard.')
     @app_commands.guilds(discord.Object(id=GUILD_ID))
     async def leaderboard(self, interaction: discord.Interaction):
-        await interaction.response.send_message('This is a placeholder command for leaderboard.')
+        if self.bot.callback:
+            leaderboard = self.bot.callback(topic="LEADERBOARD", message=None)
+
+        await interaction.response.send_message(f"\n{leaderboard}\n")
 
     @app_commands.command(name='compare_users', description='Compare users.')
     @app_commands.guilds(discord.Object(id=GUILD_ID))
     async def compare_users(self, interaction: discord.Interaction):
         await interaction.response.send_message('This is a placeholder command for compare users.')
+
+    @app_commands.command(name='stocks', description='Display all stocks with their ticker, name, and current price.')
+    @app_commands.guilds(discord.Object(id=GUILD_ID))
+    async def stocks(self, interaction: discord.Interaction):
+        if self.bot.callback:
+            image_path = self.bot.callback(topic="ALL STOCKS", message=None)
+
+            # Send the image in the response
+            if os.path.exists(image_path):
+                with open(image_path, 'rb') as file:
+                    discord_file = discord.File(file, filename="stock_overview.png")
+                    await interaction.response.send_message(file=discord_file)
+                
+                # Clean up by deleting the file after sending
+                os.remove(image_path)
+            else:
+                await interaction.response.send_message("Error: Unable to generate the stock overview image.")
 
     @app_commands.command(name='compare_stocks', description='Compare stocks.')
     @app_commands.guilds(discord.Object(id=GUILD_ID))

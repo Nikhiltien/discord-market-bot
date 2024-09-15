@@ -142,8 +142,10 @@ class StockMarket:
             return_24h = f"{user['return_24h']:.2f}%"
             table.add_row([idx, username, balance, return_24h])
 
+        leaderboard_header = "🏆 **Top 10 Leaderboard** 🏆"
+
         # Send the leaderboard as a formatted message
-        return f"```\n{table}\n```"
+        return f"{leaderboard_header}\n```\n{table}\n```"
 
     def display_stocks(self, message: None) -> str:
         """

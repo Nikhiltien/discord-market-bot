@@ -1,4 +1,4 @@
-import ujson as json
+import json
 import sqlite3
 import logging
 

@@ -73,7 +73,7 @@ def generate_company_tickers(company_names, max_ticker_length=5):
         dict: A dictionary mapping company names to unique ticker symbols.
     """
     # Remove duplicates
-    company_names = list(set(company_names))
+    company_names = sorted(set(company_names))
 
     existing_tickers = set()
     company_tickers = {}

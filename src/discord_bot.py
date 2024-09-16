@@ -137,8 +137,24 @@ class MyCog(commands.Cog):
             else:
                 await interaction.response.send_message("Error: Unable to generate the stock overview image.")
 
-    @app_commands.command(name='compare_stocks', description='Compare stocks.')
+    @app_commands.command(name='compare_stocks', description='Compare two stocks.')
+    @app_commands.describe(
+        ticker1='The first stock ticker to compare',
+        ticker2='The second stock ticker to compare'
+    )
     @app_commands.guilds(discord.Object(id=GUILD_ID))
-    async def compare_stocks(self, interaction: discord.Interaction):
-        await interaction.response.send_message('This is a placeholder command for compare stocks.')
+    async def compare_stocks(self, interaction: discord.Interaction, ticker1: str, ticker2: str):
+        if self.bot.callback:
+            # Call the compare_stocks function from the StockMarket class
+            image_path = self.bot.callback(topic="COMPARE STOCKS", message={"ticker1": ticker1, "ticker2": ticker2})
 
+            # Send the image in the response
+            if os.path.exists(image_path):
+                with open(image_path, 'rb') as file:
+                    discord_file = discord.File(file, filename=os.path.basename(image_path))
+                    await interaction.response.send_message(file=discord_file)
+                
+                # Clean up by deleting the file after sending
+                os.remove(image_path)
+            else:
+                await interaction.response.send_message("Error: Unable to generate the stock comparison image.")

@@ -1,5 +1,7 @@
 import os
+import sys
 import asyncio
+import logging
 
 
 from dotenv import load_dotenv
@@ -28,6 +30,10 @@ async def main():
     try:
         db = Database("galactic_republic")
 
+        if not TOKEN or TOKEN == '':
+            logging.error("Discord API token is missing. Exiting.")
+            sys.exit(1)
+
         # Start Discord client before passing to StockMarket class
         bot = DiscordBot(command_prefix='!', guild_id=GUILD_ID, sys_channel=SYSTEM_CHANNEL)
         _ = asyncio.create_task(bot.start(TOKEN))
@@ -38,7 +44,7 @@ async def main():
 
         market_state = StockMarket(db=db, client=bot)
 
-        game_task = asyncio.create_task(market_state.start_game(interval=30))
+        game_task = asyncio.create_task(market_state.start_game(interval=60))
         monitor_task = asyncio.create_task(monitor(market_state))
 
         await asyncio.gather(game_task, monitor_task)

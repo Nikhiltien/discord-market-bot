@@ -2,7 +2,7 @@ import json
 import sqlite3
 import logging
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 class Database:
@@ -272,6 +272,66 @@ class Database:
             return stock_list
         except Exception as e:
             self.logger.error(f"Error retrieving stocks: {e}")
+            return []
+
+    def get_stock_history(self, ticker: str) -> List[Dict]:
+        """
+        Retrieve historical prices for a given stock, rounding timestamps to the nearest minute.
+
+        Parameters:
+            ticker (str): The stock ticker symbol.
+
+        Returns:
+            List[Dict]: A list of dictionaries containing timestamps and prices for each minute.
+        """
+        try:
+            # Retrieve the stock_id based on the ticker
+            self.cursor.execute('''
+                SELECT id FROM Stocks WHERE ticker = ?
+            ''', (ticker,))
+            stock = self.cursor.fetchone()
+            if not stock:
+                self.logger.error(f"Ticker {ticker} not found in Stocks table.")
+                return []
+
+            stock_id = stock[0]
+
+            # Fetch historical prices and round timestamps to the nearest minute
+            self.cursor.execute('''
+                SELECT 
+                    strftime('%Y-%m-%d %H:%M', timestamp) as rounded_timestamp,
+                    AVG(price) as price
+                FROM StockHistory
+                WHERE stock_id = ?
+                GROUP BY rounded_timestamp
+                ORDER BY rounded_timestamp ASC
+            ''', (stock_id,))
+            rows = self.cursor.fetchall()
+
+            # Convert results to a list of dictionaries
+            history = [{'timestamp': datetime.strptime(row[0], '%Y-%m-%d %H:%M'), 'price': row[1]} for row in rows]
+
+            # Fill missing minutes with the last known price
+            if history:
+                start_time = history[0]['timestamp']
+                end_time = history[-1]['timestamp']
+                filled_history = []
+                current_price = history[0]['price']
+                current_time = start_time
+
+                while current_time <= end_time:
+                    # Check if there is a price for the current minute
+                    price_record = next((entry for entry in history if entry['timestamp'] == current_time), None)
+                    if price_record:
+                        current_price = price_record['price']
+                    filled_history.append({'timestamp': current_time, 'price': current_price})
+                    current_time += timedelta(minutes=1)
+
+                return filled_history
+
+            return history
+        except Exception as e:
+            self.logger.error(f"Error retrieving historical data for {ticker}: {e}")
             return []
 
     def buy_stock(self, user_id: int, ticker: str, qty: int) -> Optional[str]:

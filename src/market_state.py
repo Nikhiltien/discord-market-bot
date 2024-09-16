@@ -1,8 +1,10 @@
 import random
 import asyncio
 import logging
+import matplotlib.pyplot as plt
 
 
+import numpy as np
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import List, Dict
@@ -38,11 +40,12 @@ class StockMarket:
         self.users: List[UserInfo] = []
         self.stocks: Dict[str, StockInfo] = {}
         self.topics = {
+            "LEADERBOARD": self.leaderboard,
+            "ALL STOCKS": self.display_stocks,
+            "COMPARE STOCKS": self.compare_stocks,
+            "NEW USER": self.new_user,
             "BUY": self.user_buy,
             "SELL": self.user_sell,
-            "NEW USER": self.new_user,
-            "ALL STOCKS": self.display_stocks,
-            "LEADERBOARD": self.leaderboard,
         }
 
     def _client_callback(self, topic, message):
@@ -118,16 +121,23 @@ class StockMarket:
         for name, ticker in company_tickers.items():
             # Check if the company already exists in the database by name
             if self.db.company_exists(name):
-                self.logger.debug(f"Company {name} already exists in the database. Skipping.")
-                continue
+                # Retrieve the latest price if the company already exists
+                existing_price = self.db.get_latest_price(ticker)
+                if existing_price is not None:
+                    self.logger.debug(f"Company {name} ({ticker}) already exists. Using last known price: {existing_price}.")
+                    self.stocks[ticker] = StockInfo(ticker=ticker, price=existing_price)
+                    continue
+                else:
+                    self.logger.error(f"Could not retrieve the latest price for {name} ({ticker}). Skipping.")
 
-            # Generate initial price and volume
+            # Generate initial price and volume for new companies
             initial_price = round(random.uniform(10, 1_000), 2)
             initial_volume = 0
-            
+
             # Insert the new stock data into the database
             self.db.insert_stock_data(name=name, ticker=ticker, price=initial_price, volume=initial_volume)
             self.logger.debug(f"Added {name} ({ticker}) with initial price {initial_price} and volume {initial_volume}")
+            self.stocks[ticker] = StockInfo(ticker=ticker, price=initial_price)
 
     def leaderboard(self, message: None) -> str:
         # Retrieve leaderboard data and limit to the top 10 users
@@ -146,6 +156,49 @@ class StockMarket:
 
         # Send the leaderboard as a formatted message
         return f"{leaderboard_header}\n```\n{table}\n```"
+
+    def compare_stocks(self, message: str) -> str:
+        """
+        Compare two stocks by plotting their historical prices on a logarithmic scale.
+
+        Parameters:
+            ticker1 (str): The first stock ticker.
+            ticker2 (str): The second stock ticker.
+
+        Returns:
+            str: The file path of the saved plot image.
+        """
+        ticker1 = message['ticker1']
+        ticker2 = message['ticker2']
+        # Fetch historical prices from the database
+        data1 = self.db.get_stock_history(ticker1)
+        data2 = self.db.get_stock_history(ticker2)
+
+        if not data1 or not data2:
+            self.logger.error(f"Unable to fetch data for tickers: {ticker1} or {ticker2}.")
+            return "Error: Unable to fetch stock data."
+
+        # Extract dates and prices for both stocks
+        dates1, prices1 = zip(*[(entry['timestamp'], entry['price']) for entry in data1])
+        dates2, prices2 = zip(*[(entry['timestamp'], entry['price']) for entry in data2])
+
+        # Plotting the data
+        plt.figure(figsize=(12, 6))
+        plt.plot(dates1, prices1, label=ticker1, color='blue')
+        plt.plot(dates2, prices2, label=ticker2, color='orange')
+        plt.yscale('log')  # Set y-axis to logarithmic scale
+        plt.xlabel('Date')
+        plt.ylabel('Price')
+        plt.title(f'Performance of ${ticker1} vs. ${ticker2}')
+        plt.legend()
+        plt.grid(True)
+
+        # Save the plot
+        file_path = f"compare_{ticker1}_{ticker2}.png"
+        plt.savefig(file_path)
+        plt.close()
+
+        return file_path
 
     def display_stocks(self, message: None) -> str:
         """
